@@ -1,0 +1,1071 @@
+---
+title: '**Evaluación Genética Texel**'
+author: "Nicolas Giovannini, Martín Villa"
+date: "13 de abril de 2023"
+output:
+  html_document: default
+  pdf_document: default
+subtitle: Cabaña INTA EEA Esquel
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Datos, include=FALSE}
+
+# Historico ---------------------------------------------------------------
+# 2009
+# -Levante toda la base de datos nuevamente para mantener datos que habian sido eliminados;
+
+# 2010 
+# -enviaron una nueva BD con correcciones y variables nuevas;
+
+# 2010-2011 
+# migre BD a access;
+
+# 2012 
+# -empece a usar pesos al nacimiento promedio para datos faltantes con el fin de poder usarlo como COV
+# -Puse tbn EDM promedio a las madres faltantes con el mismo objetivo anterior
+# -Recategorice animales de DIG en la BD de access y puse algunos en PC50 y PC240 (donde normalmente no tienen datos)
+# -Comprob? que utilizando par?metros gen?ticos propios, las tendencias gen?ticas se corresponden mejor con lo observado en 
+# las tendencias fenot?picas. Cuando usaba par?metros bibliogr?ficos, algunas cosas daban al reves de lo observado.
+
+# PARA 2013 !!!
+# -mejorar indice de sn;
+# Incorporar la columna "propietario" al cat?logo de padres;
+
+# 2015
+# -Corrida N?1. Solo Balcarce
+# -Corrida N?2. Se suma Esquel
+# -Corrida N?3. Se suma La Ranchada y Las Margaritas (s?lo se genener? informe para estos 2 campos)
+# -Corrida N?4. Balcarce con datos 2015
+
+# 2016
+# -Corrida N?2 Balcarce
+
+# 2017
+# -8/3/17 Corrida N?1 Esquel
+# -10/3/17 Corrida N?2 Esquel (con PC240)
+# -13/3/17 Corrida N?3 Esquel con correcciones
+# -14/3/17 Corrida N?4 Esquel con m?s correcciones
+
+# 2019
+# -Migro de SAS a R
+
+# EVALUACION GENETICA POBLACIONAL TEXEL -----------------------------------
+
+#Ver lo de conexion directa a la BD Access
+#Modificar en tabla padres APODO_I por PADRE
+
+#Librerias
+#library(reshape2)
+library(ggplot2)
+library(dplyr)
+
+#Anio de evaluacion
+ult.anio <- 2022                                              #Actualizar
+
+n.campo <- 1     #Balcarce:6 Esquel:1 Parana:34 Pecora:37 Las Margaritas:29
+est <-  'ESQ'      #Campo a listar (BAL,PAR,ESQ,PEC,LMA)
+
+#Creo directorios de trabajo
+dir.create("c:/Drive/DATA/TEXEL/POB/2023/")                 #Actualizar
+dir.create("c:/Drive/DATA/TEXEL/POB/2023/4/")               #Actualizar
+dir.create("c:/Drive/DATA/TEXEL/POB/2023/4/BLUP_PC/")       #Actualizar
+dir.create("c:/Drive/DATA/TEXEL/POB/2023/4/BLUP_ECO/")      #Actualizar
+
+POB <- ("c:/Drive/DATA/TEXEL/POB/2023/")                    #Actualizar
+BLUP.PC <- ("c:/Drive/DATA/TEXEL/POB/2023/4/BLUP_PC")       #Actualizar
+BLUP.ECO <- ("c:/Drive/DATA/TEXEL/POB/2023/4/BLUP_ECO")     #Actualizar
+
+setwd("c:/Drive/DATA/TEXEL/POB/2023/")                      #Actualizar
+
+#Antes, borrar o renombrar el archivo del ano pasado*/														/*RECORDAR*/
+nuevo <- read.csv("c:/Drive/DATA/TEXEL/BLUP TX POB.txt", sep=";")
+
+#nuevo <- subset(nuevo,IDUP!='2018-29-1-LC609')
+
+#Le doy formato correcto a las fechas y elimino las originales
+nuevo$FN <- as.Date(nuevo$FNtext, format='%d/%m/%Y')
+nuevo$F_PC50 <- as.Date(nuevo$F_PC50text, format='%d/%m/%Y')
+nuevo$F_PC100 <- as.Date(nuevo$F_PC100text, format='%d/%m/%Y')
+nuevo$F_PC240 <- as.Date(nuevo$F_PC240text, format='%d/%m/%Y')
+nuevo$F_ECO240 <- as.Date(nuevo$F_ECO240text, format='%d/%m/%Y')
+nuevo$F_PVS2 <- as.Date(nuevo$F_PVS2text, format='%d/%m/%Y')
+nuevo$F_FNA <- as.Date(nuevo$F_FNAtext, format='%d/%m/%Y')
+
+nuevo <- nuevo[ ,-c(13,18,21,24,27,32,38)]
+
+#Calculo edades
+nuevo$EDM      <- nuevo$FNa-nuevo$ANM
+nuevo$ed50   <- nuevo$F_PC50 - nuevo$FN
+nuevo$ed100  <- nuevo$F_PC100 - nuevo$FN
+nuevo$edP240  <- nuevo$F_PC240 - nuevo$FN
+nuevo$edE240 <- nuevo$F_ECO240 - nuevo$FN
+nuevo$edPVS2   <- nuevo$F_PVS2 - nuevo$FN
+nuevo$edFNA    <- nuevo$F_FNA - nuevo$FN
+
+nuevo$EDM <- as.numeric(nuevo$EDM)
+nuevo$ed50 <- as.numeric(nuevo$ed50)
+nuevo$ed100 <- as.numeric(nuevo$ed100)
+nuevo$edP240 <- as.numeric(nuevo$edP240)
+nuevo$edE240 <- as.numeric(nuevo$edE240)
+nuevo$edPVS2 <- as.numeric(nuevo$edPVS2)
+nuevo$edFNA <- as.numeric(nuevo$edFNA)
+
+#Elimino datos fuera de rango edad
+nuevo$PC50 <- ifelse(nuevo$ed50>75 | nuevo$ed50<25, NA, nuevo$PC50 )
+nuevo$ed50 <- ifelse(nuevo$ed50>75 | nuevo$ed50<25, NA, nuevo$ed50 )
+
+nuevo$PC100 <- ifelse(nuevo$ed100>160 | nuevo$ed100<66, NA, nuevo$PC100 )
+nuevo$ed100 <- ifelse(nuevo$ed100>160 | nuevo$ed100<66, NA, nuevo$ed100 )
+
+nuevo$PC240 <- ifelse(nuevo$edP240>320 | nuevo$edP240<181, NA, nuevo$PC240 )
+nuevo$edP240 <- ifelse(nuevo$edP240>320 | nuevo$edP240<181, NA, nuevo$edP240 )
+
+
+nuevo$EDM[is.na(nuevo$EDM)] <- 4 #Para no perder el dato asumo una edad media
+nuevo$EDM[nuevo$EDM==0] <- 1 #Para no perder el dato asumo una edad media
+
+#Recupero info
+nuevo$TP[nuevo$TP == 3] <- 2
+#nuevo$PCN <- ifelse(is.na(nuevo$PCN) & nuevo$TP==1, 4.26, nuevo$PCN)
+#nuevo$PCN <- ifelse(is.na(nuevo$PCN) & nuevo$TP==2, 3.45, nuevo$PCN)
+
+#Elimino datos fuera de rango peso
+nuevo$PCN <- ifelse(nuevo$PCN<1 | nuevo$PCN>7.5, NA, nuevo$PCN)
+
+nuevo$PC50 <- ifelse(nuevo$PC50<7 | nuevo$PC50>35, NA, nuevo$PC50)
+nuevo$ed50 <- ifelse(nuevo$PC50<7 | nuevo$PC50>35, NA, nuevo$ed50)
+
+nuevo$PC100 <- ifelse(nuevo$PC100<10.1 | nuevo$PC100>55, NA,nuevo$PC100)
+nuevo$ed100 <- ifelse(nuevo$PC100<10.1 | nuevo$PC100>55, NA,nuevo$ed100)
+
+nuevo$PC240 <- ifelse(nuevo$PC240<20 | nuevo$PC240>65, NA, nuevo$PC240)
+nuevo$edP240 <- ifelse(nuevo$PC240<20 | nuevo$PC240>65, NA, nuevo$edP240)
+
+#Recupero info
+
+summary(nuevo[,c("PCN")])
+summary(nuevo[,c("ed50","PC50")])
+summary(nuevo[,c("ed100","PC100")])
+summary(nuevo[,c("edP240","PC240")])
+
+# Comienza el Informe -----------------------------------------------------
+
+data <- nuevo
+
+#Recodificaciones
+data = data[!is.na(data$FNm),]
+data = data[!is.na(data$FNa),]
+
+data$CATEDM <- ifelse(data$EDM==1,1,data$EDM)
+data$CATEDM <- ifelse(data$CATEDM>5,610,data$CATEDM)
+data$CATEDM <- ifelse(data$CATEDM>2 & data$CATEDM<=5|is.na(data$CATEDM),35,data$CATEDM)
+
+data$CATMN <- ifelse(data$FNm<7,1,data$FNm)
+data$CATMN <- ifelse(data$CATMN==7 | data$CATMN==8,2,data$CATMN)
+data$CATMN <- ifelse(data$CATMN>10,3,data$CATMN)
+
+#data$PNcov <- data$PCN
+
+#Depuro variables
+data <- data[,c('NRO_CPO_I','CAMPO_I','IDUI','IDUP','IDUM','APODO_P','APODO_I',
+                'SX','TP','CZA',"CATMN","FNa",'CATEDM','ed50','ed100','edP240','edE240','edFNA',
+              'PCN','PC50','PC100','PC240','POB240','EGD240','RINF')]
+
+#Creo los grupos contemporaneos
+
+data$HYS<-paste(data$NRO_CPO_I,data$FNa,data$SX, sep="")
+tab <- as.data.frame(table(data$HYS))
+tab <- tab[order(tab$Freq),]
+names(tab)=c('HYS','Freq')
+data <- merge(data,tab,by='HYS')
+data <- subset(data,data$Freq>2)
+
+# Comienza Evaluacion Genetica --------------------------------------------
+ped <- data[,c("IDUI","IDUP","IDUM")]
+ped[ped==''] <-NA
+
+datPC <-  data[,c("IDUI","HYS","CATMN","TP","CZA","CATEDM","ed50","ed100","edP240","PCN",'PC50','PC100','PC240')]
+datPC <- subset(datPC, !is.na(datPC$PCN) | !is.na(datPC$PC50) | !is.na(datPC$PC100) | !is.na(datPC$PC240))
+
+datECO <-  data[,c("IDUI","HYS","TP","edP240","edE240",'POB240','EGD240','RINF','PC240')]
+datECO <- subset(datECO, !is.na(datECO$POB240) | !is.na(datECO$EGD240)| !is.na(datECO$RINF))
+
+setwd(BLUP.PC)
+write.table(datPC, file = "datPC.dat", sep=" ", row.names = F, col.names = F, quote=F, na="0")
+write.table(ped, file = "ped.dat", sep=" ", row.names = F, col.names = F, quote=F, na='0')
+
+setwd(BLUP.ECO)
+write.table(datECO, file = "datECO.dat", sep=" ", row.names = F, col.names = F, quote=F, na="0")
+write.table(ped, file = "ped.dat", sep=" ", row.names = F, quote=F, na='0')
+
+```
+
+```{r Deps, include=FALSE}
+#Corre BLUP PC
+
+setwd(BLUP.PC)
+#copiar renum anterior a la carpeta actual
+shell("renumf90 renum.par")
+shell("blupf90 renf90.par")
+
+#Corre BLUP ECO
+
+setwd(BLUP.ECO)
+#copiar renum anterior a la carpeta actual
+shell("renumf90 renum.par")
+shell("blupf90 renf90.par")
+
+#Importa EBV's
+#Lee BLUP1
+setwd(BLUP.PC)
+VC1 <-read.delim("solutions", skip=1, header=F, sep='')
+names(VC1)=c("trait","effect","IDUI.r","solution","se")
+VC1 <- subset(VC1,VC1$effect==09)
+VC1 <- VC1[,-2]
+
+VC1 <- reshape(VC1, idvar = "IDUI.r", timevar = "trait", direction = "wide")
+names(VC1)=c("IDUI.r","vcPCN","sePCN","vcPC50","sePC50","vcPC100","sePC100",'vcPC240','sePC240')
+
+inb1 <-read.delim("renf90.inb", header=F,sep='')
+names(inb1)=c("IDUI","inb1","code")
+inb1 <- inb1[,-3]
+
+ped.r <-read.delim("renadd09.ped", header=F,sep='')
+names(ped.r)=c("IDUI.r","IDUP.r","IDUM.r","v4","V5","V6",'V7',"n.pad","n.mad","IDUI")
+ped.r <-ped.r[,c(1,2,3,8:10)]
+
+VC1.j <- merge(ped.r,inb1, by='IDUI')
+VC1.j <- merge(VC1,VC1.j, by='IDUI.r')
+
+VC1.j$acPCN <- (sqrt(1-(VC1.j$sePCN*VC1.j$sePCN)/(0.159*(1+VC1.j$inb/100))))*100
+VC1.j$acPC50 <- (sqrt(1-(VC1.j$sePC50*VC1.j$sePC50)/(4.721*(1+VC1.j$inb/100))))*100
+VC1.j$acPC100 <- (sqrt(1-(VC1.j$sePC100*VC1.j$sePC100)/(6.01*(1+VC1.j$inb/100))))*100
+VC1.j$acPC240 <- (sqrt(1-(VC1.j$sePC240*VC1.j$sePC240)/(8.419*(1+VC1.j$inb/100))))*100
+
+
+VC1.j$exa <- apply(VC1.j[ ,c("acPCN","acPC50","acPC100",'acPC240')], 1, mean, na.rm = TRUE)
+
+
+#Lee BLUP2
+setwd(BLUP.ECO)
+VC2 <-read.delim("solutions", skip=1, header=F, sep='')
+names(VC2)=c("trait","effect","IDUI.r","solution","se")
+VC2 <- subset(VC2,VC2$effect==5)
+VC2 <- VC2[,-2]
+
+VC2 <- reshape(VC2, idvar = "IDUI.r", timevar = "trait", direction = "wide")
+names(VC2)=c("IDUI.r","vcPOB240","sePOB240","vcEGD240","seEGD240","vcRINF","seRINF",'vcPC240','sePC240')
+
+inb2 <-read.delim("renf90.inb", header=F,sep='')
+names(inb2)=c("IDUI","inb2","code")
+inb2 <- inb2[,-3]
+
+ped.r2 <-read.delim("renadd05.ped", header=F,sep='')
+names(ped.r2)=c("IDUI.r","IDUP.r","IDUM.r","v4","V5","V6",'V7',"n.pad","n.mad","IDUI")
+ped.r2 <-ped.r2[,c(1,2,3,10)]
+
+VC2.j <- merge(ped.r2,inb2, by='IDUI')
+VC2.j <- merge(VC2,VC2.j, by='IDUI.r')
+
+VC2.j$acPOB240 <- (sqrt(1-(VC2.j$sePOB240*VC2.j$sePOB240)/(30.859*(1+VC2.j$inb2/100))))*100
+VC2.j$acEGD240 <- (sqrt(1-(VC2.j$seEGD240*VC2.j$seEGD240)/(0.851*(1+VC2.j$inb2/100))))*100
+VC2.j$acRINF <- (sqrt(1-(VC2.j$seRINF*VC2.j$seRINF)/(0.0004*(1+VC2.j$inb2/100))))*100
+VC2.j$acPC240 <- (sqrt(1-(VC2.j$sePC240*VC2.j$sePC240)/(15.234*(1+VC2.j$inb/100))))*100
+
+
+VC2.j$exa2 <- apply(VC2.j[ ,c("acPOB240","acEGD240",'acRINF')], 1, mean, na.rm = TRUE)
+
+VC2.j <- VC2.j[,c('IDUI',"vcPOB240",'vcEGD240',"vcRINF","exa2")]
+
+
+VC3 <- merge(VC1.j,VC2.j,by='IDUI',all.x = T)
+
+rm(inb1,inb2,ped.r,ped.r2,VC1,VC2,VC1.j,VC2.j)
+
+newdata <- merge(data,VC3, by='IDUI', all.y = T)
+
+#Anio Base
+aniobase <- subset(newdata,newdata$FNa==2010)
+aniobase <- aniobase[,c("vcPCN","vcPC50","vcPC100","vcPC240","vcPOB240","vcEGD240","vcRINF")] #ME quedo con las variables de interes
+
+n <- colSums(!is.na(aniobase))
+mean <- apply(aniobase, 2, mean, na.rm=T)
+sd <- apply(aniobase, 2, sd, na.rm=T)
+tabla.ab <- as.data.frame(rbind(n,mean,sd))
+tabla.ab
+
+mean.ab <- as.data.frame(apply(aniobase, 2, mean, na.rm=T))
+
+newdata$depPCN <- (newdata$vcPCN-(mean.ab[1,]))/2
+newdata$depPC50 <- (newdata$vcPC50-(mean.ab[2,]))/2
+newdata$depPC100 <- (newdata$vcPC100-(mean.ab[3,]))/2
+newdata$depPC240 <- (newdata$vcPC240-(mean.ab[4,]))/2
+newdata$depPOB240 <- (newdata$vcPOB240-(mean.ab[5,]))/2
+newdata$depEGD240 <- (newdata$vcEGD240-(mean.ab[6,]))/2
+newdata$depRINF <- ((newdata$vcRINF-(mean.ab[7,]))/2)*100
+
+rm(mean.ab)
+
+#Calcula el Indice
+newdata$INDa <- (6.7787*newdata$depPC100*2)+(1.1755*newdata$depPC240*2)
+mean(newdata$INDa, na.rm = T)
+sd(newdata$INDa, na.rm = T)
+newdata$IND <- (((newdata$INDa-(mean(newdata$INDa, na.rm = T)))/sd(newdata$INDa, na.rm = T))*10)+100 #Formula: (((x-mean)/sd)*10)+100
+
+rm(aniobase,n,mean,sd)
+
+```
+
+```{r Tablas, include=FALSE}
+#Parametros
+ult.anio <-2022
+dir.create("c:/Drive/DATA/TEXEL/POB/2023/Resultados")           #Actualizar              
+
+provino <- ("c:/Drive/DATA/TEXEL/POB/2023/Resultados")          #Actualizar
+
+out <- paste('Padres.',est,'.csv',sep='')
+out2 <- paste('Borregos.',est,'.csv',sep='')
+out2a <- paste('Borregos4D.',est,'.csv',sep='')
+out3 <- paste('Borregas.',est,'.csv',sep='')
+out4 <- paste('Tendencia.IND.',est,'.png',sep='')
+out5 <- paste('Tabla1.',est,'.csv',sep='')
+out6 <- paste('Tabla2.',est,'.csv',sep='')
+out7 <- paste('Tabla3.',est,'.csv',sep='')
+out8 <- paste('Tabla4.',est,'.csv',sep='')
+out9 <- paste('Tabla5.',est,'.csv',sep='')
+out10 <- paste('Madres.',est,'.csv',sep='')
+out11 <- paste('Machos.4D.',est,'.csv',sep='')
+out12 <- paste('Tendencia.PC.',est,'.png',sep='')
+out13 <- paste('Tendencia.POB.',est,'.png',sep='')
+out14 <- paste('Tendencia.EGD.',est,'.png',sep='')
+out15 <- paste('Tendencia.RINF.',est,'.png',sep='')
+
+op <- 2     #1 (Pesos+eco), 2(Pesos)
+
+# Tablas Poblacion --------------------------------------------------------
+
+
+#Calculo el numero de obs por campo/anio - Tabla 3
+setwd(provino)
+
+campos <- c(1,5,6,34,28,29,37)
+
+data1 <- filter(data, NRO_CPO_I %in% campos)
+#data1$CAMPO_I <- droplevels(data1$CAMPO_I)
+tab3 <- as.data.frame.matrix(addmargins(table(data1$FNa,data1$CAMPO_I)))
+
+tab3$AN <- rownames(tab3)
+tab3 <- tab3[,c(ncol(tab3),1:ncol(tab3)-1)]
+
+write.table(tab3, file = "Tabla3.Pob.csv", row.names=F, sep=";")
+
+#Calcula las medias generales por caracteristica - Tabla 4
+
+vars.tab4 <- data[,c("PCN","PC50","PC100","PC240","POB240","EGD240","RINF")]
+
+n <- colSums(!is.na(vars.tab4))
+media <- round(apply(vars.tab4, 2, mean, na.rm=T),digits = 2)
+de <- round(apply(vars.tab4, 2, sd, na.rm=T),digits=2)
+tabla4 <- data.frame(rbind(n,media,de))
+tabla4$par <- rownames(tabla4)
+tabla4 <- tabla4[,c(ncol(tabla4),1:ncol(tabla4)-1)]
+
+write.table(tabla4, file = "Tabla4.Pob.csv", sep=";", col.names = T,row.names = F)
+
+rm(media,n,de,tab3,vars.tab4,tabla4)
+
+#Calcula el n de hijos por padre por campo - Tabla 5
+
+data2 <- subset(data1[data1$FNa >= 2007,])     #Con esto elimino informaci?n anterior a las primeras conexiones;
+
+tab5 <- as.data.frame.matrix(table(data2$IDUP,data2$CAMPO_I))
+tab5$NC <- tab5$`Don Ignacio` + tab5$`INTA Balcarce` + tab5$`INTA Esquel` + tab5$`INTA Parana` + tab5$`La Ranchada` + tab5$`Las Margaritas`
+tab5$IDUP <- rownames((tab5))
+
+tab6 <- as.data.frame.matrix(table(data2$IDUP,data2$CAMPO_I))
+tab6[tab6!=0] <-1
+tab6$NE <- tab6$`Don Ignacio` + tab6$`INTA Balcarce` + tab6$`INTA Esquel` + tab6$`INTA Parana` + tab6$`La Ranchada` + tab6$`Las Margaritas`
+tab6$IDUP <- rownames((tab6))
+tab6 <- tab6[,c('IDUP','NE')]
+
+tab7 <- merge(tab6,tab5, by='IDUP')
+tab7 <- subset(tab7,tab7$IDUP!='')
+tab7 <- subset(tab7,tab7$NC!=0 & tab7$NE!=0)
+
+tab7 <- tab7[,c(1,3:ncol(tab7),2)]
+
+write.table(tab7, file = "Tabla5.Pob.csv", sep=";",row.names = F)
+
+# Listado de Padres
+n.hijos <- as.data.frame(table(data$IDUP))
+n.hijos <- subset(n.hijos, n.hijos$Var1 != "")
+names(n.hijos)=c("IDUI", "NC")
+
+padres <- merge(n.hijos,newdata, by="IDUI")
+padres$NAC <- substr(padres$IDUI, 1, 4)
+padres$CARAV <- substr(padres$IDUI,11,20)
+padres <- padres[order(padres$IND, decreasing = T),]
+padres$ORD <- c(1:nrow(padres))
+
+tab.padres <- padres[,c("CARAV","APODO_P","NAC","NC","depPCN","depPC50","depPC100","depPC240","IND","ORD",'exa',"depPOB240","depEGD240","depRINF","exa2",'inb1')]
+
+tab.padres$depPCN <- round(tab.padres$depPCN,2)
+tab.padres$depPC50 <- round(tab.padres$depPC50,2)
+tab.padres$depPC100 <- round(tab.padres$depPC100,2)
+tab.padres$depPC240 <- round(tab.padres$depPC240,2)
+tab.padres$depPOB240 <- round(tab.padres$depPOB240,2)
+tab.padres$depEGD240 <- round(tab.padres$depEGD240,2)
+tab.padres$depRINF <- round(tab.padres$depRINF,2)
+
+tab.padres$exa <- round(tab.padres$exa,0)
+tab.padres$exa2 <- round(tab.padres$exa2,0)
+
+tab.padres <- rename(tab.padres, exaPC = exa)
+tab.padres <- rename(tab.padres, exaECO = exa2)
+tab.padres <- rename(tab.padres, PADRE = APODO_P)
+tab.padres <- rename(tab.padres, inb = inb1)
+
+tab.padres$IND <- round(tab.padres$IND,0)
+
+tab.padres$PADRE <- as.character(tab.padres$PADRE)
+tab.padres <- tab.padres[order(tab.padres$CARAV, decreasing = F),]
+
+write.table(tab.padres, file = "Padres.Pob.csv", sep=";", row.names = F, col.names = T, quote=T, na="")
+
+rm(n.hijos,padres,tab.padres)
+
+# Graficos Tendencias Geneticas
+
+#TG Indice
+TG.ind <- aggregate(newdata$IND ~ newdata$FNa, FUN=mean)
+names(TG.ind)<-c("Anio","Mean")
+TG.ind <- subset(TG.ind, TG.ind$Anio >= 2000)
+
+png(file="Tendencia Indice.Pob.png", width=800, heigh=600 )
+ggplot(data=TG.ind, aes(Anio,Mean)) + geom_path() + geom_point() +
+  scale_x_continuous(breaks = TG.ind$Anio, minor_breaks=NULL) +
+  xlab("A?o de Nacimiento") + 
+  ylab("Indice 1")
+ dev.off()
+rm(TG.ind)
+
+#TG Pesos Corporales
+TG.PCN <- aggregate(newdata$depPCN*2 ~ newdata$FNa, FUN=mean)
+names(TG.PCN)<-c("Anio","Mean")
+TG.PCN$PC <- "PCN"
+
+TG.PC50 <- aggregate(newdata$depPC50*2 ~ newdata$FNa, FUN=mean)
+names(TG.PC50)<-c("Anio","Mean")
+TG.PC50$PC <- "PC50"
+
+TG.PC100 <- aggregate(newdata$depPC100*2 ~ newdata$FNa, FUN=mean)
+names(TG.PC100)<-c("Anio","Mean")
+TG.PC100$PC <- "PC100"
+
+TG.PC240 <- aggregate(newdata$depPC240*2 ~ newdata$FNa, FUN=mean)
+names(TG.PC240)<-c("Anio","Mean")
+TG.PC240$PC <- "PC240"
+TG.PC240 <- subset(TG.PC240, TG.PC240$Anio <= ult.anio)
+
+TG.PC<-rbind (TG.PCN,TG.PC50,TG.PC100,TG.PC240)
+TG.PC <- subset(TG.PC, TG.PC$Anio>=2000)
+
+png(file="Tendencia PC.Pob.png", width=800, heigh=600 )
+ggplot(data=TG.PC, aes(Anio,Mean, color=PC)) + geom_path() + geom_point() +
+  scale_x_continuous(breaks = TG.PC$Anio, minor_breaks=NULL) +
+  xlab("A?o de Nacimiento") + 
+  ylab("EBVs de Pesos Corporales") 
+dev.off()
+
+rm(TG.PC, TG.PCN,TG.PC50,TG.PC100,TG.PC240)
+
+#TG Espesor de grasa dorsal
+TG.egd <- aggregate(newdata$depEGD240 ~ newdata$FNa, FUN=mean)
+names(TG.egd)<-c("Anio","Mean")
+TG.egd <- subset(TG.egd, TG.egd$Anio >= 2000 & TG.egd$Anio <= ult.anio)
+
+png(file="Tendencia EGD.Pob.png", width=800, heigh=600 )
+ggplot(data=TG.egd, aes(Anio,Mean)) + geom_path() + geom_point() +
+  scale_x_continuous(breaks = TG.egd$Anio, minor_breaks=NULL) +
+  scale_y_continuous(limits=c(-0.5,0.5)) +
+  xlab("A?o de Nacimiento") + 
+  ylab("EBVs Espesor de Grasa Dorsal") 
+dev.off()
+rm(TG.egd)
+
+#TG Profundidad del bife
+TG.prof <- aggregate(newdata$depPOB240 ~ newdata$FNa, FUN=mean)
+names(TG.prof)<-c("Anio","Mean")
+TG.prof <- subset(TG.prof, TG.prof$Anio >= 2000 & TG.prof$Anio <= ult.anio)
+
+png(file="Tendencia POB.Pob.png", width=800, heigh=600 )
+ggplot(data=TG.prof, aes(Anio,Mean)) + geom_path() + geom_point() +
+  scale_x_continuous(breaks = TG.prof$Anio, minor_breaks=NULL) +
+  scale_y_continuous(limits=c(-5,5)) +
+  xlab("A?o de Nacimiento") + 
+  ylab("EBVs Profundidad del Bife")
+dev.off()
+rm(TG.prof)
+
+#TG Rendimiento a la faena
+TG.rinf <- aggregate(newdata$depRINF ~ newdata$FNa, FUN=mean)
+names(TG.rinf)<-c("Anio","Mean")
+TG.rinf <- subset(TG.rinf, TG.rinf$Anio >= 2000 & TG.rinf$Anio <= ult.anio)
+
+png(file="Tendencia RINF.Pob.png", width=800, heigh=600 )
+ggplot(data=TG.rinf, aes(Anio,Mean)) + geom_path() + geom_point() +
+  scale_x_continuous(breaks = TG.rinf$Anio, minor_breaks=NULL) +
+  scale_y_continuous(limits=c(-0.6,0.8)) +
+  xlab("A?o de Nacimiento") + 
+  ylab("EBVs Rendimiento a la faena")
+dev.off()
+rm(TG.rinf)
+
+# Tablas Establecimientos -------------------------------------------------
+#Informes Balcarce/Esquel/Parana/Pecora
+
+#libraries
+#library(emmeans)
+#library(Matrix)
+#library(lme4)
+#library(car)
+
+# Calculo el numero de obs*EF*anio - Tabla 1
+setwd(provino)
+tab1 <- subset(data1, data1$NRO_CPO_I==n.campo)
+
+#tab1$SX <- droplevels(tab1$SX)
+
+t1 <- table(tab1$FNa,tab1$SX)
+t2 <- table(tab1$FNa,tab1$TP)
+
+tabla1.e <- as.data.frame(cbind(t1,t2))
+tabla1.e$Total <- tabla1.e$H+tabla1.e$M
+
+t3 <- (colSums(tabla1.e))
+
+tabla1.e <- rbind(tabla1.e,t3)
+
+tabla1.e$FNa <- row.names(tabla1.e)
+tabla1.e$FNa <- ifelse(tabla1.e$FNa==nrow(tabla1.e),'Total',tabla1.e$FNa)
+
+names(tabla1.e)=c("Hembras","Machos","Simple","Doble","Total","Año")
+
+tabla1.e <- tabla1.e[,c('Año',"Hembras","Machos","Simple","Doble","Total")]
+
+write.table(tabla1.e, file = out5, sep=";",row.names = F)
+
+# Calcula las medias generales por caracteristica - Tabla 3
+
+ifelse(op==1,(tab2 <- tab1[,c("PCN","PC50","PC100","PC240","POB240","EGD240","RINF")]),(tab2 <- tab1[,c("PCN","PC50","PC100","PC240")]))
+  
+n <- colSums(!is.na(tab2))
+media <- round(apply(tab2, 2, mean, na.rm=T),digits = 2)
+de <- round(apply(tab2, 2, sd, na.rm=T),digits = 2)
+tabla2 <- data.frame(rbind(n,media,de))
+tabla2$par <- row.names(tabla2)
+tabla2 <- tabla2[,c(ncol(tabla2),1:ncol(tabla2)-1)]
+
+write.table(tabla2, file = out6, sep=";",row.names = F)
+
+#Calcula el n de hijos*padre*anio - Tabla 6
+
+tab3 <- subset(tab1, tab1$IDUP!='' & tab1$FNa>ult.anio-10)
+#tab3$IDUP <- droplevels(tab3$IDUP) #resetea los levels
+
+tabla3.e <- as.data.frame.matrix(addmargins(table(tab3$IDUP,tab3$FNa)))
+tabla3.e$IDUI <- row.names(tabla3.e)
+tabla3.e <- tabla3.e[,c(ncol(tabla3.e),1:ncol(tabla3.e)-1)]
+
+write.table(tabla3.e, file = out7, sep=";",row.names = F)
+
+rm(media,n,de,tab2,tab3)
+
+#Proceso los deps para el campo
+#Padres
+pad.est <- subset(data,data$NRO_CPO_I==n.campo)
+
+#pad.est$IDUP <- droplevels(pad.est$IDUP) #resetea los levels
+
+n.hijos.e <- as.data.frame(table(pad.est$IDUP))
+n.hijos.e <- subset(n.hijos.e, n.hijos.e$Var1 != "")
+names(n.hijos.e)=c("IDUI", "NC")
+
+padres.e <- merge(n.hijos.e,newdata, by="IDUI")
+padres.e$NAC <- substr(padres.e$IDUI, 1, 4)
+padres.e$CARAV <- substr(padres.e$IDUI,11,20)
+padres.e <- padres.e[order(padres.e$IND, decreasing = T),]
+padres.e$ORD <- c(1:nrow(padres.e))
+
+tab.padres.e <- padres.e[,c("CARAV","APODO_P","NAC","NC","depPCN","depPC50","depPC100","depPC240","IND","ORD",'exa',"depPOB240","depEGD240","depRINF","exa2",'inb1')]
+names(tab.padres.e) <- c("CARAV","PADRE","NAC","NC","depPCN","depPC50","depPC100","depPC240","IND","ORD",'exaPC',"depPOB240","depEGD240","depRINF","exaECO",'inb')
+
+tab.padres.e$depPCN <- round(tab.padres.e$depPCN,2)
+tab.padres.e$depPC50 <- round(tab.padres.e$depPC50,2)
+tab.padres.e$depPC100 <- round(tab.padres.e$depPC100,2)
+tab.padres.e$depPC240 <- round(tab.padres.e$depPC240,2)
+tab.padres.e$depPOB240 <- round(tab.padres.e$depPOB240,2)
+tab.padres.e$depEGD240 <- round(tab.padres.e$depEGD240,2)
+tab.padres.e$depRINF <- round(tab.padres.e$depRINF,2)
+tab.padres.e$inb <- round(tab.padres.e$inb,3)
+
+tab.padres.e$exaPC <- round(tab.padres.e$exaPC,0)
+tab.padres.e$exaECO <- round(tab.padres.e$exaECO,0)
+
+tab.padres.e$IND <- round(tab.padres.e$IND,0)
+
+tab.padres.e$PADRE <- as.character(tab.padres.e$PADRE)
+
+tab.padres.e <- tab.padres.e[order(tab.padres.e$CARAV, decreasing = F),]
+
+
+write.table(tab.padres.e, file = out, sep=";", row.names = F, col.names = T, quote=T, na="")
+
+rm(n.hijos.e,padres.e)
+
+#Borregos 2D
+
+deps.campo <- subset(newdata, newdata$FNa == ult.anio & newdata$NRO_CPO_I == n.campo)
+
+deps.campo$depPCN <- round(deps.campo$depPCN,2)
+deps.campo$depPC50 <- round(deps.campo$depPC50,2)
+deps.campo$depPC100 <- round(deps.campo$depPC100,2)
+deps.campo$depPC240 <- round(deps.campo$depPC240,2)
+deps.campo$depPOB240 <- round(deps.campo$depPOB240,2)
+deps.campo$depEGD240 <- round(deps.campo$depEGD240,2)
+deps.campo$depRINF <- round(deps.campo$depRINF,2)
+
+deps.campo$exa <- round(deps.campo$exa,0)
+deps.campo$exa2 <- round(deps.campo$exa2,0)
+deps.campo$IND <- round(deps.campo$IND,0)
+
+bgos <- subset(deps.campo, deps.campo$SX == "M")
+bgos <- bgos[order(bgos$IND, decreasing = T),]
+bgos$ORD <- c(1:nrow(bgos))
+
+ifelse(op==1,
+tabla.bgos <- bgos[,c("APODO_I","APODO_P","depPCN","depPC50","depPC100","depPC240","exa",'depPOB240','depEGD240','depRINF','exa2',"IND","ORD")]
+,
+tabla.bgos <- bgos[,c("APODO_I","APODO_P","depPCN","depPC50","depPC100","depPC240","exa","IND","ORD")])
+
+ifelse(op==1,
+names(tabla.bgos) <- c("CARAV","PADRE","depPCN","depPC50","depPC100","depPC240","exaPC",'depPOB240','depEGD240','depRINF','exaECO',"IND","ORD")
+,
+names(tabla.bgos) <- c("CARAV","PADRE","depPCN","depPC50","depPC100","depPC240","exaPC","IND","ORD"))
+
+tabla.bgos <- tabla.bgos[order(tabla.bgos$CARAV, decreasing = F),]
+write.table(tabla.bgos, file = out2, sep=";", row.names = F, col.names = T, quote=T, na="")
+
+rm(bgos)
+
+#Borregos 4D
+
+deps.campo4 <- subset(newdata, newdata$FNa == ult.anio-1 & newdata$NRO_CPO_I == n.campo)
+
+deps.campo4$depPCN <- round(deps.campo4$depPCN,2)
+deps.campo4$depPC50 <- round(deps.campo4$depPC50,2)
+deps.campo4$depPC100 <- round(deps.campo4$depPC100,2)
+deps.campo4$depPC240 <- round(deps.campo4$depPC240,2)
+deps.campo4$depPOB240 <- round(deps.campo4$depPOB240,2)
+deps.campo4$depEGD240 <- round(deps.campo4$depEGD240,2)
+deps.campo4$depRINF <- round(deps.campo4$depRINF,2)
+
+deps.campo4$exa <- round(deps.campo4$exa,0)
+deps.campo4$exa2 <- round(deps.campo4$exa2,0)
+deps.campo4$IND <- round(deps.campo4$IND,0)
+
+bgos4 <- subset(deps.campo4, deps.campo4$SX == "M")
+bgos4 <- bgos4[order(bgos4$IND, decreasing = T),]
+bgos4$ORD <- c(1:nrow(bgos4))
+
+ifelse(op==1,
+       tabla.bgos4 <- bgos4[,c("APODO_I","APODO_P","depPCN","depPC50","depPC100","depPC240","exa",'depPOB240','depEGD240','depRINF','exa2',"IND","ORD")]
+       ,
+       tabla.bgos4 <- bgos4[,c("APODO_I","APODO_P","depPCN","depPC50","depPC100","depPC240","exa","IND","ORD")])
+
+ifelse(op==1,
+       names(tabla.bgos4) <- c("CARAV","PADRE","depPCN","depPC50","depPC100","depPC240","exaPC",'depPOB240','depEGD240','depRINF','exaECO',"IND","ORD")
+       ,
+       names(tabla.bgos4) <- c("CARAV","PADRE","depPCN","depPC50","depPC100","depPC240","exaPC","IND","ORD"))
+
+tabla.bgos4 <- tabla.bgos4[order(tabla.bgos4$CARAV, decreasing = F),]
+write.table(tabla.bgos4, file = out2a, sep=";", row.names = F, col.names = T, quote=T, na="")
+
+rm(bgos4)
+
+#Borregas
+
+deps.campo$depPCN <- round(deps.campo$depPCN,2)
+deps.campo$depPC50 <- round(deps.campo$depPC50,2)
+deps.campo$depPC100 <- round(deps.campo$depPC100,2)
+deps.campo$depPC240 <- round(deps.campo$depPC240,2)
+deps.campo$depPOB240 <- round(deps.campo$depPOB240,2)
+deps.campo$depEGD240 <- round(deps.campo$depEGD240,2)
+deps.campo$depRINF <- round(deps.campo$depRINF,2)
+
+deps.campo$exa <- round(deps.campo$exa,0)
+deps.campo$exa2 <- round(deps.campo$exa2,0)
+deps.campo$IND <- round(deps.campo$IND,0)
+
+bgas <- subset(deps.campo, deps.campo$SX == "H")
+bgas <- bgas[order(bgas$IND, decreasing = T),]
+bgas$ORD <- c(1:nrow(bgas))
+
+ifelse(op==1,
+       tabla.bgas <- bgas[,c("APODO_I","APODO_P","depPCN","depPC50","depPC100","depPC240","exa",'depPOB240','depEGD240','depRINF','exa2',"IND","ORD")]
+       ,
+       tabla.bgas <- bgas[,c("APODO_I","APODO_P","depPCN","depPC50","depPC100","depPC240","exa","IND","ORD")])
+
+ifelse(op==1,
+       names(tabla.bgas) <- c("CARAV","PADRE","depPCN","depPC50","depPC100","depPC240","exaPC",'depPOB240','depEGD240','depRINF','exaECO',"IND","ORD")
+       ,
+       names(tabla.bgas) <- c("CARAV","PADRE","depPCN","depPC50","depPC100","depPC240","exaPC","IND","ORD"))
+
+tabla.bgas <- tabla.bgas[order(tabla.bgas$CARAV, decreasing = F),]
+write.table(tabla.bgas, file = out3, sep=";", row.names = F, col.names = T, quote=T, na="")
+
+rm(bgas)
+
+#Madres
+
+mad1 <- subset(data,data$FNa==ult.anio & NRO_CPO_I==n.campo)
+mad2 <- as.data.frame(mad1$IDUM)
+mad2 <- unique(mad2)
+mad2$IDUI <-mad2[,1]
+
+mad3 <- merge(mad2,newdata, by="IDUI")
+
+mad3 <- mad3[order(mad3$IND, decreasing = T),]
+
+mad3$NAC <- substr(mad3$IDUI, 1, 4)
+mad3$CARAV <- substr(mad3$IDUI,11,20)
+
+mad3$ORD <- c(1:nrow(mad3))
+
+mad3$depPCN <- round(mad3$depPCN,2)
+mad3$depPC50 <- round(mad3$depPC50,2)
+mad3$depPC100 <- round(mad3$depPC100,2)
+mad3$depPC240 <- round(mad3$depPC240,2)
+mad3$depPOB240 <- round(mad3$depPOB240,2)
+mad3$depEGD240 <- round(mad3$depEGD240,2)
+mad3$depRINF <- round(mad3$depRINF,2)
+
+mad3$exa <- round(mad3$exa,0)
+mad3$exa2 <- round(mad3$exa2,0)
+mad3$IND <- round(mad3$IND,0)
+
+ifelse(op==1,
+       tabla.madres <- mad3[,c("CARAV","APODO_P","NAC","depPCN","depPC50","depPC100","depPC240","exa",'depPOB240','depEGD240','depRINF','exa2',"IND","ORD")]
+       ,
+       tabla.madres <- mad3[,c("CARAV","APODO_P","NAC","depPCN","depPC50","depPC100","depPC240","exa","IND","ORD")])
+
+ifelse(op==1,
+       names(tabla.madres) <- c("CARAV","PADRE","NAC","depPCN","depPC50","depPC100","depPC240","exaPC",'depPOB240','depEGD240','depRINF','exaECO',"IND","ORD")
+       ,
+       names(tabla.madres) <- c("CARAV","PADRE","NAC","depPCN","depPC50","depPC100","depPC240","exaPC","IND","ORD"))
+
+tabla.madres <- tabla.madres[order(tabla.madres$CARAV, decreasing = F),]
+write.table(tabla.madres, file = out10, sep=";", row.names = F, col.names = T, quote=T, na="")
+
+
+rm(mad1,mad2,mad3)
+
+
+# Graficos Tendencias Geneticas
+
+tend.est <- subset(newdata,newdata$NRO_CPO_I == n.campo)
+
+#TG Indice
+TG.ind <- aggregate(tend.est$IND ~ tend.est$FNa, FUN=mean)
+names(TG.ind)<-c("Anio","Mean")
+TG.ind <- subset(TG.ind, TG.ind$Anio >= 2000)
+
+#png(file=out4, width=800, heigh=600 )
+f1 <- ggplot(data=TG.ind, aes(Anio,Mean)) + geom_path() + geom_point() +
+  scale_x_continuous(breaks = TG.ind$Anio, minor_breaks=NULL) +
+  xlab("Año de Nacimiento") + 
+  ylab("Indice 1")
+#dev.off()
+#rm(TG.ind)
+
+#TG Pesos Corporales
+TG.PCN <- aggregate(tend.est$depPCN*2 ~ tend.est$FNa, FUN=mean)
+names(TG.PCN)<-c("Anio","Mean")
+TG.PCN$PC <- "PCN"
+
+TG.PC50 <- aggregate(tend.est$depPC50*2 ~ tend.est$FNa, FUN=mean)
+names(TG.PC50)<-c("Anio","Mean")
+TG.PC50$PC <- "PC50"
+
+TG.PC100 <- aggregate(tend.est$depPC100*2 ~ tend.est$FNa, FUN=mean)
+names(TG.PC100)<-c("Anio","Mean")
+TG.PC100$PC <- "PC100"
+
+TG.PC240 <- aggregate(tend.est$depPC240*2 ~ tend.est$FNa, FUN=mean)
+names(TG.PC240)<-c("Anio","Mean")
+TG.PC240$PC <- "PC240"
+TG.PC240 <- subset(TG.PC240, TG.PC240$Anio <= ult.anio)
+
+TG.PC<-rbind (TG.PCN,TG.PC50,TG.PC100,TG.PC240)
+TG.PC <- subset(TG.PC, TG.PC$Anio>=2000)
+
+#png(file=out12, width=800, heigh=600 )
+f2 <- ggplot(data=TG.PC, aes(Anio,Mean, color=PC)) + geom_path() + geom_point() +
+  scale_x_continuous(breaks = TG.PC$Anio, minor_breaks=NULL) +
+  xlab("Año de Nacimiento") + 
+  ylab("EBVs de Pesos Corporales")+
+theme(legend.position = 'bottom')
+#dev.off()
+
+rm(TG.PC, TG.PCN,TG.PC50,TG.PC100,TG.PC240)
+
+#TG Espesor de grasa dorsal
+#TG.egd <- aggregate(tend.est$depEGD240 ~ tend.est$FNa, FUN=mean)
+#names(TG.egd)<-c("Anio","Mean")
+#TG.egd <- subset(TG.egd, TG.egd$Anio >= 2000 & TG.egd$Anio <= ult.anio)
+
+#png(file=out14, width=800, heigh=600 )
+#f3 <- ggplot(data=TG.egd, aes(Anio,Mean)) + geom_path() + geom_point() +
+#  scale_x_continuous(breaks = TG.egd$Anio, minor_breaks=NULL) +
+#  scale_y_continuous(limits=c(-0.5,0.5)) +
+#  xlab("Año de Nacimiento") + 
+#  ylab("EBVs Espesor de Grasa Dorsal")
+#dev.off()
+rm(TG.egd)
+
+#TG Profundidad del bife
+#TG.prof <- aggregate(tend.est$depPOB240 ~ tend.est$FNa, FUN=mean)
+#names(TG.prof)<-c("Anio","Mean")
+#TG.prof <- subset(TG.prof, TG.prof$Anio >= 2000 & TG.prof$Anio <= ult.anio)
+
+#png(file=out13, width=800, heigh=600 )
+#f4 <- ggplot(data=TG.prof, aes(Anio,Mean)) + geom_path() + geom_point() +
+#  scale_x_continuous(breaks = TG.prof$Anio, minor_breaks=NULL) +
+#  scale_y_continuous(limits=c(-5,5)) +
+#  xlab("Año de Nacimiento") + 
+#  ylab("EBVs Profundidad del Bife")
+#dev.off()
+#rm(TG.prof)
+
+#TG Rendimiento a la faena
+#TG.rinf <- aggregate(tend.est$depRINF ~ tend.est$FNa, FUN=mean)
+#names(TG.rinf)<-c("Anio","Mean")
+#TG.rinf <- subset(TG.rinf, TG.rinf$Anio >= 2000 & TG.rinf$Anio <= ult.anio)
+
+#png(file=out15, width=800, heigh=600 )
+#f5 <- ggplot(data=TG.rinf, aes(Anio,Mean)) + geom_path() + geom_point() +
+#  scale_x_continuous(breaks = TG.rinf$Anio, minor_breaks=NULL) +
+#  scale_y_continuous(limits=c(-0.6,0.8)) +
+#  xlab("Año de Nacimiento") + 
+#  ylab("EBVs Rendimiento a la faena")
+#dev.off()
+#rm(TG.rinf)
+
+```
+
+## INTRODUCCION
+<div style="text-align: justify">Este informe tiene por objetivo evaluar genéticamente a los animales del plantel de la raza Texel de la cabaña y analizar las tendencias en cada uno de los caracteres registrados. Con la información contenida en el informe más la inspección visual de los animales, los responsables del plan de mejoramiento genético podrán decidir los apareamientos según el tipo de progenie deseada. Se espera que el uso de la información aportada por este sumario contribuya al incremento de la eficiencia productiva del plantel, traducida en el mayor retorno económico.<div/>
+
+## DATOS DE CAMPO
+<div style="text-align: justify">La predicción del mérito genético se basa en la utilización conjunta de los registros de producción y los registros genealógicos disponibles. Se registraron datos de animales de ambos sexos y se dispone de información de su tipo de nacimiento. La distribución de registros anuales según sexo y tipo de nacimiento se presenta en la tabla 1.<div/>  
+
+  
+```{r tabla1, echo=FALSE}
+library(knitr)
+  options(knitr.kable.NA = '')
+kable(tabla1.e,row.names = F, caption='**Tabla 1**. Número de crías discriminados por año, sexo y tipo de nacimiento')
+```
+  
+<div style="text-align: justify">Se analizaron los caracteres descriptos en la tabla 2: 
+
+  
+
+**Tabla 2**. Caracteres analizados.
+
+|Nombre                              |Abreviación|Unidad|
+|:-----------------------------------|:----------|:-----|
+|Peso al Nacimiento                  |PCN        |kg    |
+|Peso a los 50 días de edad          |PC50       |kg    |
+|Peso a los 100 días de edad         |PC100      |kg    |
+|Peso a los 240 días de edad         |PC240      |kg    |
+|Profundidad del área de ojo de bife |POB240     |mm    |
+|Espesor de grasa dorsal             |EGD240     |mm    |
+|Rendimiento a la faena              |RINF       |%     |
+
+  
+
+<div style="text-align: justify">El número de observaciones, los promedios y desvíos estándar de cada una de las características evaluadas se presentan en la tabla 3.
+<div/>
+
+  
+
+```{r tabla3, echo=FALSE}
+  options(knitr.kable.NA = '')
+library(knitr)
+kable(tabla2, row.names = F, caption='**Tabla 3**. Número de observaciones (n), promedio (media) y desvío estándar (de) de las características evaluadas.')
+```
+
+  
+## PARÁMETROS GENÉTICOS
+<div style="text-align: justify">
+Se utilizaron los parámetros genéticos descriptos en las tablas 4 y 5. Con la acumulación de datos, en el futuro estos parámetros serán reestimados para fortalecer el sistema de evaluación.
+
+  
+
+**Tabla 4**. Parámetros genéticos (heredabilidades y correlaciones) para los pesos corporales
+
+|            |  PCN| PC50| PC100| PC240|
+|:-----------|----:|----:|-----:|-----:|
+|PCN         | 0.15|     |      |      |
+|PC50        | 0.51| 0.28|      |      |
+|PC100       | 0.47| 0.59|  0.18|      |
+|PC240       | 0.29| 0.29|  0.85|  0.21|
+
+  
+**Tabla 5**. Parámetros genéticos (heredabilidades y correlaciones) para medidas ecográficas y Rendimiento de la res.
+
+|            |POB240|EGD240| RINF|
+|:-----------|-----:|-----:|----:|
+|POB240      |  0.29|      |     |
+|EGD240      |  0.24|  0.37|     |
+|RINF        |  0.35|  0.14| 0.21|
+
+  
+  
+  
+## EVALUACIÓN GENÉTICA
+
+## Desvíos esperados en la progenie (DEP) y exactitudes (Ex).
+<div style="text-align: justify">Los méritos genéticos se presentan como desvíos esperados en la progenie (DEP). En un reproductor, representa el valor genético esperado en el promedio de sus crías y **se expresa en la misma unidad de medida de la característica evaluada**. Por ejemplo, un carnero con una DEP de 1.2 kg para PC100 significa que se espera que su progenie pese en promedio 1.2 kg más que el promedio de la progenie de un carnero de DEP 0.0 kg. Esto siempre y cuando se lo aparee con hembras al azar. La confiabilidad o exactitud de la estimación de los DEP depende de la característica, la cantidad y la calidad de información disponible. En general, exactitudes mayores a 80 son consideradas altas y exactitudes menores a 60 son consideradas bajas.
+
+Es normal que las exactitudes se presenten cerca del 80-90% para los carneros y alrededor del 60-70% para borregos y borregas con datos propios, pero algunos animales tienen exactitudes muy bajas (por falta de datos propios, por falta de parientes con información o por estar en grupos contemporáneos con escasa conexión genética) por lo que su evaluación debe ser tomada con precaución. 
+
+Una orientación sobre la exactitud de las evaluaciones de padres está dada por su número de hijos. Además, la distribución de hijos por padre y por año es un indicador de la capacidad de corrección por efecto año que tendrán los análisis. En la tabla 5 se presentan los padres de cabaña utilizados desde el servicio de 2010 con el número de hijos nacidos vivos (NC) en base al registro de PCN.
+
+  
+
+```{r tabla6, echo=FALSE}
+  options(knitr.kable.NA = '')
+library(knitr)
+kable(tabla3.e, row.names = F, caption='**Tabla 6**. Nº de crías por carnero por año.')
+```
+
+  
+
+<div style="text-align: justify">
+Es fundamental para la evaluación utilizar machos “conectores” (2 al menos) entre años, con un buen número de crías en ambos períodos (>20). <div/>
+
+## Progreso genético
+<div style="text-align: justify">A partir de los registros de producción y de genealogía es posible calcular el valor genético para cada característica y para cada animal de la base de datos. Los DEP son comparables entre años por lo que es posible calcular una tendencia o progreso genético promediando estos valores para animales de un mismo año de nacimiento. Para calcularlo, al igual que los DEPs, se consideró al año 2010 como base de comparación. 
+En las siguientes figuras podemos observar el progreso genético, expresado como valor de cría (EBV = DEP *2), desde los nacimientos de 2000 para las características evaluadas.
+
+  
+
+**Figura 1**. Progreso genético del Indice de Selección.
+
+```{r fig1, echo=FALSE}
+f1
+```
+
+  
+
+**Figura 2**. Progreso genético de los pesos corporales.
+
+```{r fig2, echo=FALSE}
+f2
+```
+
+<!---  **Figura 3**. Progreso genético de Espesor de Grasa Dorsal. -->
+
+<!---```{r fig3, echo=FALSE} -->
+<!--- f3 -->
+<!--- ``` -->
+
+  
+
+<!--- **Figura 4**. Progreso genético de Profundidad del Area de Ojo de Bife.-->
+
+<!--- ```{r fig4, echo=FALSE}-->
+<!--- f4-->
+<!--- ```-->
+<div/>
+
+
+
+## Listados de mérito genético
+<div style="text-align: justify">En las tablas 7, 8, 9 y 10 se presentan los listados de mérito genético para padres, borregos 2D, carneros 4D y borregas 2D, respectivamente. En cada tabla se encontrarán los siguientes descriptores: 
+
+**CARAV**: Es la identificación del animal dentro de campo, generalmente correspondiente a la caravana.
+
+**PADRE**: Es la identificación del padre dentro de campo, correspondiente con la caravana o nombre.
+
+**NAC**: Es el año de nacimiento del animal evaluado.
+
+**NC**: Es el número de corderos nacidos por Padre.
+
+**dep**: es el valor de las diferencias esperadas en la progenie para cada una de las características.
+
+**ExaPC**: Es la exactitud promedio de las mediciones de peso corporal. Se expresa en porcentaje de 0 a 100. A título de referencia una evaluación visual por un buen inspector tiene una confiabilidad de 50% y una prueba de progenie con 25 hijos tiene una confiabilidad de aproximadamente 85%. 
+
+**ExaECO**: Es la exactitud promedio de las mediciones ecográficas.
+
+**IND**: Es el valor del índice de selección estandarizado a un valor medio de 100 y desvío estándar 10. Por ejemplo, un animal 100 es un animal promedio y un animal 110 se encuentra a un desvío estándar por arriba de la media de la población. Este primer índice tiene por objetivo incrementar el peso a los 100 y 240 días de edad teniendo como criterio solamente a las dos primeras variables de acuerdo a la siguiente función:
+
+**H** = (vcPC100 * 6.7787) + (vcPC240 * 1.1755)
+
+Donde,
+
+**vc**: Valor de cría (dep*2) del animal
+
+**ORD**: Es el orden de índice de mayor a menor.
+
+**Inb**: Es el nivel de inbreeding o consanguinidad.
+
+El resumen de padres puede presentar cambios año a año debido a la incorporación de nueva información, con los años se irá ganando robustez en la evaluación. En la medida en que se acumule información y se consoliden los procedimientos, la exactitud y calidad de los resultados mejorarán.<div/>
+
+  
+
+```{r tabla7, echo=FALSE}
+  options(knitr.kable.NA = '')
+library(knitr)
+kable(tab.padres.e, row.names = F, caption='**Tabla 7**. Mérito genético (deps) de padres de cabaña.')
+```
+
+  
+
+```{r tabla8, echo=FALSE}
+  options(knitr.kable.NA = '')
+library(knitr)
+kable(tabla.bgos, row.names = F, caption='**Tabla 8**. Mérito genético (deps) de borregos 2D.')
+```
+
+  
+
+```{r tabla9, echo=FALSE}
+  options(knitr.kable.NA = '')
+library(knitr)
+kable(tabla.bgos4, row.names = F, caption='**Tabla 9**. Mérito genético (deps) de carneros 4D.')
+```
+
+  
+
+```{r tabla10, echo=FALSE}
+  options(knitr.kable.NA = '')
+library(knitr)
+kable(tabla.bgas, row.names = F, caption='**Tabla 10**. Mérito genético (deps) de borregas.')
+```
+
+  
+
+# CONTACTO
+## Lic. Gen. Nicolás Giovannini, MSc
+giovannini.nicolas@inta.gob.ar
+
+INTA EEA Bariloche
+
+Bariloche, Rio Negro, Argentina
+
